@@ -1,0 +1,51 @@
+{
+  "name": "effective-state",
+  "version": "0.1.0",
+  "description": "Minimal, fast, type-safe reactive primitives for TypeScript",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mjbeswick/effective-state"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "type-check": "tsc --noEmit",
+    "lint": "oxlint src",
+    "format": "oxfmt src",
+    "test": "node --experimental-transform-types --test src/index.test.ts",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "reactive",
+    "signals",
+    "computed",
+    "effects",
+    "typescript",
+    "reactivity",
+    "effective-state"
+  ],
+  "author": "Michael Beswick",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.1",
+    "oxfmt": "^0.15.0",
+    "oxlint": "^1.30.0",
+    "tsup": "^8.3.3",
+    "typescript": "^5.7.3"
+  }
+}
