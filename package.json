@@ -24,7 +24,7 @@
     "type-check": "tsc --noEmit",
     "lint": "oxlint src",
     "format": "oxfmt src",
-    "test": "node --experimental-transform-types --test src/index.test.ts",
+    "test": "node --no-warnings --experimental-transform-types --test src/index.test.ts",
     "prepack": "npm run build"
   },
   "keywords": [
