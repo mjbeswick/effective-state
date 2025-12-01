@@ -1,4 +1,4 @@
-import { atom, effect, computed } from "./index";
+import { atom, effect, computed, action } from "./index";
 
 const count = atom(0);
 const name = atom("Alice");
@@ -13,8 +13,26 @@ effect(() => {
 // Minimal API usage:
 count(10);
 name("Bob");
-count(count() + 1);
-count(count() + 5);
+
+// Use action to batch multiple updates - effect runs once at the end
+action(() => {
+  count(count() + 1);
+  count(count() + 5);
+  name("Charlie");
+});
 
 console.log(`Current: ${count()}`); // → "Current: 16"
 console.log(count() + double()); // → 48
+
+// Reusable actions
+const increment = () => action(() => count(count() + 1));
+const reset = () => action(() => {
+  count(0);
+  name("Alice");
+});
+
+increment();
+console.log(`After increment: ${count()}`); // → "After increment: 17"
+
+reset();
+console.log(`After reset: ${count()}, ${name()}`); // → "After reset: 0, Alice"

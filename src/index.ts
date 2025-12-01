@@ -3,6 +3,7 @@
 
 type Listener = () => void;
 type Unsubscribe = () => void;
+type PrimitiveHint = "default" | "string" | "number";
 
 // Global context for dependency tracking
 let currentEffect: Effect | null = null;
@@ -56,6 +57,41 @@ class Effect {
   constructor(public run: () => void) {}
 }
 
+/** Helper to attach primitive conversion methods */
+function attachPrimitiveConversion<T>(
+  target: any,
+  getValue: () => T,
+  tag: string
+): void {
+  Object.defineProperties(target, {
+    toString: {
+      value: function toString() {
+        return String(getValue());
+      },
+      configurable: true,
+    },
+    valueOf: {
+      value: function valueOf() {
+        return getValue();
+      },
+      configurable: true,
+    },
+    [Symbol.toPrimitive]: {
+      value: function (hint: PrimitiveHint) {
+        const v = getValue();
+        if (hint === "number") return typeof v === "number" ? v : NaN;
+        if (hint === "string") return String(v);
+        return v;
+      },
+      configurable: true,
+    },
+    [Symbol.toStringTag]: {
+      value: tag,
+      configurable: true,
+    },
+  });
+}
+
 /**
  * Core reactive atom
  */
@@ -75,7 +111,20 @@ export interface Atom<T> {
   /** For debugging / string interpolation */
   toString(): string;
   valueOf(): T;
-  [Symbol.toPrimitive](hint: "default" | "string" | "number"): T | string;
+  [Symbol.toPrimitive](hint: PrimitiveHint): T | string;
+  [Symbol.toStringTag]: string;
+}
+
+/**
+ * Readonly reactive atom (for computed values)
+ */
+export interface ReadonlyAtom<T> {
+  (): T;
+  (listener: (value: T) => void): Unsubscribe;
+  readonly current: T;
+  toString(): string;
+  valueOf(): T;
+  [Symbol.toPrimitive](hint: PrimitiveHint): T | string;
   [Symbol.toStringTag]: string;
 }
 
@@ -146,7 +195,7 @@ export function atom<T>(initialValue: T): Atom<T> {
     return value;
   }) as Atom<T>;
 
-  // Attach readable/writable properties and primitive conversion
+  // Attach readable/writable properties
   Object.defineProperties(atomFn, {
     value: {
       get: () => value,
@@ -161,40 +210,32 @@ export function atom<T>(initialValue: T): Atom<T> {
       value: (v: T) => atomFn(v),
       configurable: true,
     },
-    toString: {
-      value: function toString() {
-        return String(atomFn());
-      },
-      configurable: true,
-    },
-    valueOf: {
-      value: function valueOf() {
-        return atomFn();
-      },
-      configurable: true,
-    },
-    [Symbol.toPrimitive]: {
-      value: function (hint: string) {
-        const v = atomFn();
-        if (hint === "number") return typeof v === "number" ? v : NaN;
-        if (hint === "string") return String(v);
-        return v;
-      },
-      configurable: true,
-    },
-    [Symbol.toStringTag]: {
-      value: "Atom",
-      configurable: true,
-    },
   });
+
+  attachPrimitiveConversion(atomFn, () => atomFn(), "Atom");
 
   return atomFn;
 }
 
 /**
- * Auto-track any atom read inside the callback
+ * Execute a state mutation, batching all writes so effects run once at the end.
+ * Use this to group related state updates into a single atomic operation.
  */
-export function effect(fn: () => void): void {
+export function action<T>(fn: () => T): T {
+  writeDepth++;
+  try {
+    return fn();
+  } finally {
+    writeDepth--;
+    if (writeDepth === 0) flushPending();
+  }
+}
+
+/**
+ * Auto-track any atom read inside the callback.
+ * Returns a cleanup function to dispose the effect.
+ */
+export function effect(fn: () => void): Unsubscribe {
   const parentEffect = currentEffect;
 
   const effectObj = new Effect(() => {
@@ -221,53 +262,40 @@ export function effect(fn: () => void): void {
   }
 
   effectObj.run();
+
+  // Return cleanup function for manual disposal
+  return () => {
+    effectObj.cleanup?.();
+    effectObj.cleanup = null;
+  };
 }
 
 /**
- * Derived/computed atom (lazy, cached)
+ * Derived/computed atom (readonly, cached)
  */
-export function computed<T>(computeFn: () => T): Atom<Readonly<T>> {
-  const derived = atom(null as any);
+export function computed<T>(computeFn: () => T): ReadonlyAtom<T> {
+  const internal = atom<T>(undefined as T);
 
   effect(() => {
-    derived(computeFn());
+    internal(computeFn());
   });
 
-  // Make it readonly and add primitive conversion
-  const readonlyDerived = derived as any;
-  delete readonlyDerived.value;
-  delete readonlyDerived.set;
-  Object.defineProperty(readonlyDerived, "current", {
-    get: () => derived(),
+  // Create readonly wrapper
+  const readonlyAtom = ((arg?: any): any => {
+    if (typeof arg === "function") {
+      return internal(arg);
+    }
+    return internal();
+  }) as ReadonlyAtom<T>;
+
+  Object.defineProperty(readonlyAtom, "current", {
+    get: () => internal(),
+    configurable: true,
   });
-  Object.defineProperties(readonlyDerived, {
-    toString: {
-      value: function toString() {
-        return String(derived());
-      },
-      configurable: true,
-    },
-    valueOf: {
-      value: function valueOf() {
-        return derived();
-      },
-      configurable: true,
-    },
-    [Symbol.toPrimitive]: {
-      value: function (hint: string) {
-        const v = derived();
-        if (hint === "number") return typeof v === "number" ? v : NaN;
-        if (hint === "string") return String(v);
-        return v;
-      },
-      configurable: true,
-    },
-    [Symbol.toStringTag]: {
-      value: "Computed",
-      configurable: true,
-    },
-  });
-  return readonlyDerived;
+
+  attachPrimitiveConversion(readonlyAtom, () => internal(), "Computed");
+
+  return readonlyAtom;
 }
 
 /**
